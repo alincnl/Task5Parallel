@@ -80,10 +80,10 @@ int main(int argc, char *argv[]){
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
     MPI_Comm_size(MPI_COMM_WORLD, &nRanks);
-    MPI_Status status;
+    //MPI_Status status;
 
-    if(nRanks < 1 || nRanks > 4) {
-        printf("1-4");
+    if(nRanks < 1 || nRanks > 2) {
+        printf("1-2");
         exit(0);
     }
 
@@ -157,26 +157,29 @@ int main(int argc, char *argv[]){
         
         // обновление сетки и передача граничных значений
         update<<< threadPerBlock, blocksPerGrid >>> (d_Anew, d_A, start, stop, size);
-
+/*
         ncclGroupStart();
         // нижняя граница
         if(myRank != nRanks-1)
-            ncclSend(d_Anew + stop - size, size, ncclDouble, (myRank+1)%nRanks, comm, 0);
+            ncclSend(d_Anew + stop - size, size, ncclDouble, myRank+1, comm, 0);
         if(myRank != 0)
-            ncclRecv(d_Anew + start - size, size, ncclDouble, (myRank-1 + nRanks)%nRanks, comm, 0);
+            ncclRecv(d_Anew + start - size, size, ncclDouble, myRank-1, comm, 0);
 
         // верхняя граница
         if(myRank != 0)
-            ncclSend(d_Anew + start, size, ncclDouble, (myRank-1)%nRanks, comm, 0);
+            ncclSend(d_Anew + start, size, ncclDouble, myRank-1, comm, 0);
         if(myRank != nRanks-1)
-            ncclRecv(d_Anew + stop, size, ncclDouble, (myRank+1 + nRanks)%nRanks, comm, 0);
+            ncclRecv(d_Anew + stop, size, ncclDouble, myRank+1, comm, 0);
         ncclGroupEnd();
-        
+ */       
         // пересчет значения ошибки раз в 100 итераций
         if(iter % 100 == 0){
             substract<<< threadPerBlock, blocksPerGrid >>> (d_Anew, d_A, d_Asub, size);
+            
             cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_Asub, d_error, size*size);
-            ncclAllReduce(d_error, d_error, 1, ncclDouble, ncclMax, comm, 0);
+          //  ncclGroupStart();
+          //  ncclAllReduce(d_error, d_error, 1, ncclDouble, ncclMax, comm, 0);
+          //  ncclGroupEnd();
             cudaMemcpyAsync(&error, d_error, sizeof(double), cudaMemcpyDeviceToHost);
         }
         // обмен значениями

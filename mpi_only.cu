@@ -21,8 +21,8 @@ using namespace std;
 // функция, обновляющая значения сетки
 __global__ void update(double* A, double* Anew, int start, int stop, int size) 
 {
-    int i = blockIdx.x*blockDim.x + threadIdx.x;
-    int j = blockIdx.y*blockDim.y + threadIdx.y;
+    int j = blockIdx.x*blockDim.x + threadIdx.x;
+    int i = blockIdx.y*blockDim.y + threadIdx.y;
     if(i*size + j >= start && i*size + j < stop)
         if (j < size - 1 && j > 0 && i > 0 && i < size - 1){
             double left = A[i * size + j - 1];
@@ -81,8 +81,8 @@ int main(int argc, char *argv[]){
     MPI_Comm_size(MPI_COMM_WORLD, &nRanks);
     MPI_Status status;
 
-    if(nRanks < 1 || nRanks > 4) {
-        printf("1-4");
+    if(nRanks < 1 || nRanks > 2) {
+        printf("1-2");
         exit(0);
     }
 
@@ -131,12 +131,11 @@ int main(int argc, char *argv[]){
 
     dim3 threadPerBlock = dim3(32, 32);
     dim3 blocksPerGrid = dim3((size+threadPerBlock.x-1)/threadPerBlock.x,(size+threadPerBlock.y-1)/threadPerBlock.y);
-    
+
     fill<<< 1, 1 >>> (d_Anew, d_A, size);
 
     double* d_error;
     cudaMalloc(&d_error, sizeof(double));
-
     void     *d_temp_storage = NULL;
     size_t   temp_storage_bytes = 0;
     cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_Asub, d_error, size*size);
@@ -147,21 +146,24 @@ int main(int argc, char *argv[]){
         iter = iter + 1;
         
         // обновление сетки и передача граничных значений
-        update<<< threadPerBlock, blocksPerGrid >>> (d_Anew, d_A, start, stop, size);
-
-        MPI_Sendrecv(d_Anew + stop - size, size, MPI_DOUBLE,
-            (myRank+1)%nRanks,(myRank+1)%nRanks, d_Anew + start - size, size,
-            MPI_DOUBLE, (myRank-1 + nRanks)%nRanks, myRank, MPI_COMM_WORLD, &status);
-
-        MPI_Sendrecv(d_Anew + start, size, MPI_DOUBLE,
-            (myRank-1 + nRanks)%nRanks,(myRank-1 + nRanks)%nRanks, d_Anew + stop, size,
-            MPI_DOUBLE, (myRank+1)%nRanks, myRank, MPI_COMM_WORLD, &status);
+        update<<< blocksPerGrid,threadPerBlock, 0, 0 >>> (d_Anew, d_A, start, stop, size);
+ 
+        if(myRank!=0){
+            MPI_Sendrecv(d_Anew + stop - size, size, MPI_DOUBLE,
+                myRank-1,0, d_Anew + start - size, size,
+                MPI_DOUBLE, myRank-1, 0, MPI_COMM_WORLD, &status);
+        }
+        if(myRank!=nRanks-1){
+            MPI_Sendrecv(d_Anew + start, size, MPI_DOUBLE,
+                myRank+1,0, d_Anew + stop, size,
+                MPI_DOUBLE, myRank+1, 0, MPI_COMM_WORLD, &status);
+        }
 
         // пересчет значения ошибки раз в 100 итераций
         if(iter % 100 == 0){
-            substract<<< threadPerBlock, blocksPerGrid >>> (d_Anew, d_A, d_Asub, size);
+            substract<<< threadPerBlock, blocksPerGrid, 0, 0 >>> (d_Anew, d_A, d_Asub, size);
             cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_Asub, d_error, size*size);
-            cudaMemcpyAsync(&error, d_error, sizeof(double), cudaMemcpyDeviceToHost);
+            cudaMemcpy(&error, d_error, sizeof(double), cudaMemcpyDeviceToHost);
             MPI_Allreduce(&error, &error, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
         }
         // обмен значениями
