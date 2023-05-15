@@ -157,7 +157,7 @@ int main(int argc, char *argv[]){
         
         // обновление сетки и передача граничных значений
         update<<< threadPerBlock, blocksPerGrid >>> (d_Anew, d_A, start, stop, size);
-/*
+
         ncclGroupStart();
         // нижняя граница
         if(myRank != nRanks-1)
@@ -171,15 +171,13 @@ int main(int argc, char *argv[]){
         if(myRank != nRanks-1)
             ncclRecv(d_Anew + stop, size, ncclDouble, myRank+1, comm, 0);
         ncclGroupEnd();
- */       
+        
         // пересчет значения ошибки раз в 100 итераций
         if(iter % 100 == 0){
             substract<<< threadPerBlock, blocksPerGrid >>> (d_Anew, d_A, d_Asub, size);
             
             cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_Asub, d_error, size*size);
-          //  ncclGroupStart();
-          //  ncclAllReduce(d_error, d_error, 1, ncclDouble, ncclMax, comm, 0);
-          //  ncclGroupEnd();
+            ncclAllReduce(d_error, d_error, 1, ncclDouble, ncclMax, comm, 0);
             cudaMemcpyAsync(&error, d_error, sizeof(double), cudaMemcpyDeviceToHost);
         }
         // обмен значениями
